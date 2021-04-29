@@ -18,7 +18,8 @@ MOD_DIR=mod
 ASSET_DIR=assets
 MAIN=$(SRC_DIR)/main.cpp
 SRC_FILES=$(wildcard $(SRC_DIR)/*.cpp)
-MOD_FILES=$(patsubst $(SRC_DIR)/%.cpp, $(MOD_DIR)/%.pcm, $(filter-out $(MAIN), $(SRC_FILES)))
+MOD_FILES=$(wildcard $(SRC_DIR)/*.ixx)
+PCM_FILES=$(patsubst $(SRC_DIR)/%.ixx, $(MOD_DIR)/%.pcm, $(MOD_FILES))
 
 OLC_PGE_HPP=$(INC_DIR)/olcPixelGameEngine.hpp
 OLC_PGE_CPP=$(INC_DIR)/olcPixelGameEngine.cpp
@@ -40,12 +41,12 @@ EFLAGS= -I$(INC_DIR) -I$(ASSET_DIR) #-O3
 #pixelgameengine compilation flags
 GFLAGS= -luser32 -lgdi32 -lopengl32 -lgdiplus -lShlwapi -ldwmapi #-lstdc++fs #-lc++fs#-lstdc++fs #-llibc++fs
 
-$(MOD_DIR)/%.pcm: $(SRC_DIR)/%.cpp
+$(MOD_DIR)/%.pcm: $(SRC_DIR)/%.ixx
 	$(CC) $(STD) $(EFLAGS) -c $< $(MFLAGS) -o $@
 
 $(MAIN): $(SRC_FILES)
 
-$(EXE): $(MOD_FILES) $(MAIN)
+$(EXE): $(PCM_FILES) $(MAIN)
 	$(CC) $(STD) $(EFLAGS) $(GFLAGS) -fprebuilt-module-path=$(MOD_DIR) $(SRC_FILES) $(OLC_PGE_CPP) -o $@
 
 build: $(EXE)
@@ -55,4 +56,4 @@ run: build
 
 .PHONY: clean
 clean:
-	$(REMOVE) $(MOD_FILES)
+	$(REMOVE) $(PCM_FILES)
