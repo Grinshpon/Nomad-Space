@@ -262,12 +262,7 @@ Triangle project(Triangle &tri, Mat4 &m) {
 }
 
 olc::Pixel getColor(float lum) {
-  if (lum < 0.0f) {
-    return olc::BLACK;
-  }
-  else {
-    return olc::WHITE * lum;
-  }
+  return olc::WHITE * std::max(lum, 0.1f);
 }
 
 Mat4 projectionMatrix(float fnear, float ffar, float fov, float aspectRatio) {
@@ -470,7 +465,7 @@ public:
         triViewed = project(triTrans, viewMat);
 
         std::array<Triangle, 2> outTris;
-        int clippedTris = triViewed.clipAgainstPlane({0,0,2.1f}, {0,0,1.0f}, outTris[0], outTris[1]);
+        int clippedTris = triViewed.clipAgainstPlane({0,0,0.1f}, {0,0,1.0f}, outTris[0], outTris[1]);
 
         for(int i = 0; i < clippedTris; i++) {
           triProj = project(outTris[i], projMat);
@@ -491,20 +486,48 @@ public:
     });
 
     // Draw sorted triangles
-    for (auto tri: trisToDraw) {
-      FillTriangle(
-        tri.points[0].x, tri.points[0].y,
-        tri.points[1].x, tri.points[1].y,
-        tri.points[2].x, tri.points[2].y,
-        tri.color
-      );
-      // Draw wireframe
-      DrawTriangle(
-        tri.points[0].x, tri.points[0].y,
-        tri.points[1].x, tri.points[1].y,
-        tri.points[2].x, tri.points[2].y,
-        olc::BLACK
-      );
+    for (auto &tri: trisToDraw) {
+      // clip triangles against screen edges
+      std::array<Triangle, 2> clipped;
+      std::list<Triangle> triQueue;
+      triQueue.push_back(tri);
+      int newTris = 1;
+
+      for(int p = 0; p < 4; p++) {
+        int trisToAdd = 0;
+        while (newTris > 0) {
+          Triangle test = triQueue.front();
+          triQueue.pop_front();
+          newTris--;
+
+          switch (p) {
+          case 0: trisToAdd = test.clipAgainstPlane({0,0,0}, {0,1.0f,0}, clipped[0], clipped[1]); break;
+          case 1: trisToAdd = test.clipAgainstPlane({0,static_cast<float>(ScreenHeight())-1.0f,0}, {0,-1.0f,0}, clipped[0], clipped[1]); break;
+          case 2: trisToAdd = test.clipAgainstPlane({0,0,0}, {1.0f,0,0}, clipped[0], clipped[1]); break;
+          case 3: trisToAdd = test.clipAgainstPlane({static_cast<float>(ScreenWidth())-1.0f,0,0}, {-1.0f,0,0}, clipped[0], clipped[1]); break;
+          }
+          for (int w = 0; w < trisToAdd; w++) {
+            triQueue.push_back(clipped[w]);
+          }
+        }
+        newTris = triQueue.size();
+      }
+
+      for (auto &t : triQueue) {
+        FillTriangle(
+          t.points[0].x, t.points[0].y,
+          t.points[1].x, t.points[1].y,
+          t.points[2].x, t.points[2].y,
+          t.color
+        );
+        // Draw wireframe
+        DrawTriangle(
+          t.points[0].x, t.points[0].y,
+          t.points[1].x, t.points[1].y,
+          t.points[2].x, t.points[2].y,
+          olc::BLACK
+        );
+      }
     }
     return true;
   }
