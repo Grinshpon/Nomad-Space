@@ -262,7 +262,7 @@ Triangle project(Triangle &tri, Mat4 &m) {
 }
 
 olc::Pixel getColor(float lum) {
-  return olc::WHITE * std::max(lum, 0.1f);
+  return olc::WHITE * std::max((lum+1.0f)/2.0f, 0.1f);
 }
 
 Mat4 projectionMatrix(float fnear, float ffar, float fov, float aspectRatio) {
@@ -521,12 +521,14 @@ public:
           t.color
         );
         // Draw wireframe
+        /*
         DrawTriangle(
           t.points[0].x, t.points[0].y,
           t.points[1].x, t.points[1].y,
           t.points[2].x, t.points[2].y,
           olc::BLACK
         );
+        */
       }
     }
     return true;
