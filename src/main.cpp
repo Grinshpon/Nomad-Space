@@ -38,24 +38,24 @@ struct Vec3 {
     scale(s,s,s);
   }
 
-  Vec3 operator+ (Vec3 &rhs) {
+  Vec3 operator+ (const Vec3 &rhs) const {
     return {
       x+rhs.x,
       y+rhs.y,
       z+rhs.z
     };
   }
-  Vec3 operator- (Vec3 &rhs) {
+  Vec3 operator- (const Vec3 &rhs) const {
     return {
       x-rhs.x,
       y-rhs.y,
       z-rhs.z
     };
   }
-  float dot(Vec3 v) {
+  float dot(const Vec3 &v) const {
     return x*v.x + y*v.y + z*v.z;
   }
-  Vec3 cross(Vec3 &v) {
+  Vec3 cross(const Vec3 &v) const {
     return {
       y * v.z - z * v.y,
       z * v.x - x * v.z,
@@ -101,7 +101,7 @@ struct Triangle {
 
   // return how many of the two output tris to use
   int clipAgainstPlane(Vec3 plane_p, Vec3 plane_n, Triangle &out1, Triangle &out2) {
-    plane_n.normalize();
+    //plane_n.normalize();
 
     auto dist = [&](Vec3 &p) {
       return (
@@ -172,6 +172,7 @@ struct Mesh {
     tris.clear();
     std::vector<Vec3> verts;
     while (!f.eof()) {
+      //todo: "modernize" code
       char line[256];
       f.getline(line, 256);
       std::strstream s;
@@ -197,14 +198,14 @@ struct Mesh {
 struct Mat4 {
   std::array<std::array<float,4>, 4> data = {0};
 
-  float get(int row, int col) {
+  float get(int row, int col) const {
     return data[row][col];
   }
   void set(int row, int col, float n) {
     data[row][col] = n;
   }
 
-  Mat4 operator*(Mat4 &rhs) {
+  Mat4 operator*(const Mat4 &rhs) const {
     Mat4 res;
     for (int col = 0; col < 4; col++) {
       for (int row = 0; row < 4; row++) {
@@ -224,7 +225,7 @@ const Mat4 identity4 = {
 };
 
 // Multiply a 3d Vector by the Projection Matrix by first pretending it's a 4d vector
-Vec3 mulProj(Vec3 &u, Mat4 &m) {
+Vec3 mulProj(const Vec3 &u, const Mat4 &m) {
   Vec3 res;
 
   res.x = u.x * m.get(0,0) + u.y * m.get(1,0) + u.z * m.get(2,0) + m.get(3,0);
@@ -242,7 +243,7 @@ Vec3 mulProj(Vec3 &u, Mat4 &m) {
 }
 
 // Pretend a 3d vector is a 4d vector with w=1, multiply by the matrix, then return the result, discarding w
-Vec3 mulV4M4(Vec3 &u, Mat4 &m) {
+Vec3 mulV4M4(const Vec3 &u, const Mat4 &m) {
   Vec3 res;
 
   res.x = u.x * m.get(0,0) + u.y * m.get(1,0) + u.z * m.get(2,0) + m.get(3,0);
@@ -252,7 +253,7 @@ Vec3 mulV4M4(Vec3 &u, Mat4 &m) {
   return res;
 }
 
-Triangle project(Triangle &tri, Mat4 &m) {
+Triangle project(const Triangle &tri, const Mat4 &m) {
   Triangle res;
   res.points[0] = mulProj(tri.points[0], m);
   res.points[1] = mulProj(tri.points[1], m);
@@ -279,7 +280,7 @@ Mat4 projectionMatrix(float fnear, float ffar, float fov, float aspectRatio) {
   return res;
 }
 
-Mat4 matPointAt(Vec3 &pos, Vec3 &target, Vec3 &up) {
+Mat4 matPointAt(const Vec3 &pos, const Vec3 &target, const Vec3 &up) {
   Vec3 newForward = target-pos;
   newForward.normalize();
 
@@ -444,7 +445,6 @@ public:
 
     // Calculate triangle projection and add to draw queue
     for(auto tri: meshCube.tris) {
-      //tri.translate(10,0,0);
       Triangle triProj, triTrans, triViewed; //projected and transformed triangles
 
       triTrans = project(tri, matWorld);

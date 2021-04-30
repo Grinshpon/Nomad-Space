@@ -32,7 +32,7 @@ ifeq ($(CC), cl)
   MFLAGS=
 else
   STD= -std=c++2a
-  MFLAGS= -Xclang -emit-module-interface
+  MFLAGS= -Xclang -fimplicit-modules -fimplicit-module-maps -emit-module-interface
 endif
 
 #extra flags
@@ -42,7 +42,7 @@ EFLAGS= -I$(INC_DIR) -I$(ASSET_DIR) #-O3
 GFLAGS= -luser32 -lgdi32 -lopengl32 -lgdiplus -lShlwapi -ldwmapi #-lstdc++fs #-lc++fs#-lstdc++fs #-llibc++fs
 
 $(MOD_DIR)/%.pcm: $(SRC_DIR)/%.ixx
-	$(CC) $(STD) $(EFLAGS) -c $< $(MFLAGS) -o $@
+	$(CC) $(STD) $(EFLAGS) -c $< $(MFLAGS) -emit-module-interface -o $@
 
 $(MAIN): $(SRC_FILES)
 
