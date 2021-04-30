@@ -154,6 +154,7 @@ struct Triangle {
       out2.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
       return 2;
     }
+    //should be unreachable
     return -1;
   }
 
@@ -166,15 +167,14 @@ struct Mesh {
   bool loadObj(std::string fp) {
     std::ifstream f(fp);
     if (!f.is_open()) {
+      std::cout << "Could not load object file: " << fp << std::endl;
       return false;
     }
 
     tris.clear();
     std::vector<Vec3> verts;
-    while (!f.eof()) {
-      //todo: "modernize" code
-      char line[256];
-      f.getline(line, 256);
+    std::string line {};
+    while (getline(f, line)) {
       std::strstream s;
       s << line;
       char junk;
