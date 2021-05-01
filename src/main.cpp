@@ -713,8 +713,8 @@ public:
       dv2_step = dv2 / static_cast<float>(abs(dy2));
     }
 
+    float tu, tv; //final uv points
     if (dy1) {
-      float tu, tv; //final uv points
       for (int i=y1; i <= y2; i++) {
         int ax = x1 + static_cast<float>(i-y1) * dax_step;
         int bx = x1 + static_cast<float>(i-y1) * dbx_step;
@@ -747,23 +747,25 @@ public:
           Draw(j,i,spr.GetPixel(w,h));
         }
       }
-      dy1 = y3 - y2;
-      dx1 = x3 - x2;
-      du1 = u3 - u2;
-      dv1 = v3 - v2;
-      if (dy1) {
-        dax_step = dx1 / static_cast<float>(abs(dy1));
-        du1_step = du1 / static_cast<float>(abs(dy1));
-        dv1_step = dv1 / static_cast<float>(abs(dy1));
-      }
-      else {
-        du1_step = 0;
-        dv1_step = 0;
-      }
-      if (dy2) {
-        dbx_step = dx2 / static_cast<float>(abs(dy2));
-      }
+    }
+    dy1 = y3 - y2;
+    dx1 = x3 - x2;
+    du1 = u3 - u2;
+    dv1 = v3 - v2;
+    if (dy1) {
+      dax_step = dx1 / static_cast<float>(abs(dy1));
+      du1_step = du1 / static_cast<float>(abs(dy1));
+      dv1_step = dv1 / static_cast<float>(abs(dy1));
+    }
+    else {
+      du1_step = 0;
+      dv1_step = 0;
+    }
+    if (dy2) {
+      dbx_step = dx2 / static_cast<float>(abs(dy2));
+    }
 
+    if (dy1) {
       for (int i=y2; i <= y3; i++) {
         int ax = x2 + static_cast<float>(i-y2) * dax_step;
         int bx = x1 + static_cast<float>(i-y1) * dbx_step;
