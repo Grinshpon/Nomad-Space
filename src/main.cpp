@@ -693,10 +693,10 @@ public:
     float du1 = u2-u1;
     float dv1 = v2-v1;
 
-    int dy2 = y3-y2;
-    int dx2 = x3-x2;
-    float du2 = u3-u2;
-    float dv2 = v3-v2;
+    int dy2 = y3-y1;
+    int dx2 = x3-x1;
+    float du2 = u3-u1;
+    float dv2 = v3-v1;
 
     float dax_step = 0, dbx_step = 0,
       du1_step = 0, dv1_step = 0,
