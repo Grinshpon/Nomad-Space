@@ -48,7 +48,7 @@ struct Vec2 {
     };
   }
 
-  Vec2 operator* (float rhs) const {
+  Vec2 operator* (float rhs) {
     return {u*rhs, v*rhs};
   }
 };
@@ -236,9 +236,10 @@ struct Triangle {
 
       out2.points[0] = *(insidePts[1]);
       out2.points[1] = out1.points[2];
+      out2.uvs[0] = *(insideUvs[1]);
+      out2.uvs[1] = out1.uvs[2];
       std::tie(out2.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
-      out1.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[1]))*t + *(insideUvs[1]);
-
+      out2.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[1]))*t + *(insideUvs[1]);
 
       return 2;
     }
@@ -484,6 +485,7 @@ Mat4 matTrans(float x, float y, float z) {
 
 class Game : public olc::PixelGameEngine {
   Mesh meshCube;
+  olc::Sprite spr;
   Mat4 projMat;
   Vec3 camPos = {0};
   Vec3 camDir {0,0,1};
@@ -493,7 +495,7 @@ class Game : public olc::PixelGameEngine {
 
 public:
   Game() {
-    sAppName = "Test";
+    sAppName = "Nomad Space";
   }
 
   bool OnUserCreate() override {
@@ -503,6 +505,7 @@ public:
     }
     */
     meshCube = CUBE;
+    spr = olc::Sprite("assets/tex.png");
 
     projMat = projectionMatrix(0.1f, 1000.0f, 90.0f, static_cast<float>(ScreenHeight()) / static_cast<float>(ScreenWidth()));
     return true;
@@ -636,6 +639,12 @@ public:
       }
 
       for (auto &t : triQueue) {
+        TexturedTriangle(
+          t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,
+          t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,
+          t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,
+          spr
+        );
         /*
         FillTriangle(
           t.points[0].x, t.points[0].y,
@@ -653,7 +662,143 @@ public:
         );
       }
     }
+    DrawSprite(0,0, &spr);
     return true;
+  }
+
+  void TexturedTriangle(int x1, int y1, float u1, float v1,
+                        int x2, int y2, float u2, float v2,
+                        int x3, int y3, float u3, float v3,
+                        const olc::Sprite &spr) {
+    if (y2 < y1) {
+      std::swap(y1,y2);
+      std::swap(x1,x2);
+      std::swap(u1,u2);
+      std::swap(v1,v2);
+    }
+    if (y3 < y1) {
+      std::swap(y1,y3);
+      std::swap(x1,x3);
+      std::swap(u1,u3);
+      std::swap(v1,v3);
+    }
+    if (y3 < y2) {
+      std::swap(y3,y2);
+      std::swap(x3,x2);
+      std::swap(u3,u2);
+      std::swap(v3,v2);
+    }
+    int dy1 = y2-y1;
+    int dx1 = x2-x1;
+    float du1 = u2-u1;
+    float dv1 = v2-v1;
+
+    int dy2 = y3-y2;
+    int dx2 = x3-x2;
+    float du2 = u3-u2;
+    float dv2 = v3-v2;
+
+    float dax_step = 0, dbx_step = 0,
+      du1_step = 0, dv1_step = 0,
+      du2_step = 0, dv2_step = 0;
+
+    if (dy1) {
+      dax_step = dx1 / static_cast<float>(abs(dy1));
+      du1_step = du1 / static_cast<float>(abs(dy1));
+      dv1_step = dv1 / static_cast<float>(abs(dy1));
+    }
+    if (dy2) {
+      dbx_step = dx2 / static_cast<float>(abs(dy2));
+      du2_step = du2 / static_cast<float>(abs(dy2));
+      dv2_step = dv2 / static_cast<float>(abs(dy2));
+    }
+
+    if (dy1) {
+      float tu, tv; //final uv points
+      for (int i=y1; i <= y2; i++) {
+        int ax = x1 + static_cast<float>(i-y1) * dax_step;
+        int bx = x1 + static_cast<float>(i-y1) * dbx_step;
+
+        //starting uv coord
+        float su = u1 + static_cast<float>(i-y1) * du1_step;
+        float sv = v1 + static_cast<float>(i-y1) * dv1_step;
+
+        //ending uv coord
+        float eu = u1 + static_cast<float>(i-y1) * du2_step;
+        float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+
+        if (ax > bx) {
+          std::swap(ax,bx);
+          std::swap(su,eu);
+          std::swap(sv,ev);
+        }
+        tu = su;
+        tv = sv;
+        float t_step = 1.0f / static_cast<float>(bx - ax);
+        float t = 0.0f;
+
+        for (int j = ax; j < bx; j++) {
+          tu = (1.0f - t)*su + t*eu;
+          tv = (1.0f - t)*sv + t*ev;
+          t += t_step;
+          int w = static_cast<float>(spr.width-1) * tu;
+          int h = static_cast<float>(spr.height-1) * tv;
+          //std::cout << tu << ", " << tv << "  --  " << w << ", " << h << std::endl;
+          Draw(j,i,spr.GetPixel(w,h));
+        }
+      }
+      dy1 = y3 - y2;
+      dx1 = x3 - x2;
+      du1 = u3 - u2;
+      dv1 = v3 - v2;
+      if (dy1) {
+        dax_step = dx1 / static_cast<float>(abs(dy1));
+        du1_step = du1 / static_cast<float>(abs(dy1));
+        dv1_step = dv1 / static_cast<float>(abs(dy1));
+      }
+      else {
+        du1_step = 0;
+        dv1_step = 0;
+      }
+      if (dy2) {
+        dbx_step = dx2 / static_cast<float>(abs(dy2));
+      }
+
+      for (int i=y2; i <= y3; i++) {
+        int ax = x2 + static_cast<float>(i-y2) * dax_step;
+        int bx = x1 + static_cast<float>(i-y1) * dbx_step;
+
+        //starting uv coord
+        float su = u2 + static_cast<float>(i-y2) * du1_step;
+        float sv = v2 + static_cast<float>(i-y2) * dv1_step;
+
+        //ending uv coord
+        float eu = u1 + static_cast<float>(i-y1) * du2_step;
+        float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+
+        if (ax > bx) {
+          std::swap(ax,bx);
+          std::swap(su,eu);
+          std::swap(sv,ev);
+        }
+        tu = su;
+        tv = sv;
+        float t_step = 1.0f / static_cast<float>(bx - ax);
+        float t = 0.0f;
+
+        for (int j = ax; j < bx; j++) {
+          tu = (1.0f - t)*su + t*eu;
+          tv = (1.0f - t)*sv + t*ev;
+          t += t_step;
+          int w = static_cast<float>(spr.width-1) * tu;
+          int h = static_cast<float>(spr.height-1) * tv;
+          //std::cout << tu << ", " << tv << "  --  " << w << ", " << h << std::endl;
+          Draw(j,i,spr.GetPixel(w,h));
+        }
+        //DrawRect(ax-2,i-2,4,4);
+        //DrawRect(bx-2,i-2,4,4);
+      }
+    }
   }
 };
 
