@@ -1,11 +1,57 @@
 #include <array>
 #include <vector>
+#include <tuple>
 #include <iostream>
 #include <fstream>
 #include <algorithm>
 #include <strstream>
 #include "olcPixelGameEngine.h"
 //import linalg;
+
+struct Vec2 {
+  float u,v;
+
+
+  void normalize() {
+    float l = sqrtf(u*u + v*v);
+    u /= l;
+    v /= l;
+  }
+  float sqrMag() {
+    return (u*u + v*v);
+  }
+  float mag() {
+    return sqrtf(u*u + v*v);
+  }
+  void scale(float su, float sv) {
+    u *= su;
+    v *= sv;
+  }
+  void scale(float s) {
+    scale(s,s);
+  }
+  void translate(float du, float dv) {
+    u += du;
+    v += dv;
+  }
+
+  Vec2 operator+ (const Vec2 &rhs) const {
+    return {
+      u+rhs.u,
+      v+rhs.v,
+    };
+  }
+  Vec2 operator- (const Vec2 &rhs) const {
+    return {
+      u-rhs.u,
+      v-rhs.v,
+    };
+  }
+
+  Vec2 operator* (float rhs) const {
+    return {u*rhs, v*rhs};
+  }
+};
 
 struct Vec3 {
   float x = 0.0f,y=0.0f,z=0.0f;
@@ -64,8 +110,10 @@ struct Vec3 {
   }
 };
 
+//given point on plane and normal of plane, as well as start and end points of line segment
 // plane_n expected to be normalized
-Vec3 intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd) {
+//return point that intersects with plane, and also the ratio of where the intersection is between line start and line end
+std::pair<Vec3, float> intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd) {
   plane_n.normalize();
   float plane_d = -plane_n.dot(plane_p);
   float ad = lineStart.dot(plane_n);
@@ -74,11 +122,12 @@ Vec3 intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd
   Vec3 startToEnd = lineEnd - lineStart;
   Vec3 intersect = startToEnd;
   intersect.scale(t);
-  return lineStart + intersect;
+  return {lineStart + intersect, t};
 }
 
 struct Triangle {
   std::array<Vec3,3> points;
+  std::array<Vec2,3> uvs;
   olc::Pixel color;
 
   void translate(float dx, float dy, float dz) {
@@ -95,7 +144,8 @@ struct Triangle {
   Triangle copy() {
     return {
       .points = points,
-      .color = color
+      .uvs = uvs,
+      .color = color,
     };
   }
 
@@ -114,15 +164,38 @@ struct Triangle {
     std::array<Vec3*, 3> outsidePts;
     int outsidePtCount = 0;
 
+    std::array<Vec2*, 3> insideUvs; //texture count
+    int insideUvCount = 0;
+    std::array<Vec2*, 3> outsideUvs;
+    int outsideUvCount = 0;
+
     float d0 = dist(points[0]);
     float d1 = dist(points[1]);
     float d2 = dist(points[2]);
-    if (d0 >= 0) { insidePts[insidePtCount++] = &points[0];}
-    else { outsidePts[outsidePtCount++] = &points[0];}
-    if (d1 >= 0) { insidePts[insidePtCount++] = &points[1];}
-    else { outsidePts[outsidePtCount++] = &points[1];}
-    if (d2 >= 0) { insidePts[insidePtCount++] = &points[2];}
-    else { outsidePts[outsidePtCount++] = &points[2];}
+    if (d0 >= 0) {
+      insidePts[insidePtCount++] = &points[0];
+      insideUvs[insideUvCount++] = &uvs[0];
+    }
+    else {
+      outsidePts[outsidePtCount++] = &points[0];
+      outsideUvs[outsideUvCount++] = &uvs[0];
+    }
+    if (d1 >= 0) {
+      insidePts[insidePtCount++] = &points[1];
+      insideUvs[insideUvCount++] = &uvs[1];
+    }
+    else {
+      outsidePts[outsidePtCount++] = &points[1];
+      outsideUvs[outsideUvCount++] = &uvs[1];
+    }
+    if (d2 >= 0) {
+      insidePts[insidePtCount++] = &points[2];
+      insideUvs[insideUvCount++] = &uvs[2];
+    }
+    else {
+      outsidePts[outsidePtCount++] = &points[2];
+      outsideUvs[outsideUvCount++] = &uvs[2];
+    }
 
     if (insidePtCount == 0) {
       // all points are outside plane, so whole triangle should be clipped
@@ -137,8 +210,14 @@ struct Triangle {
       // triangle should be clipped, resulting in a smaller triangle
       out1.color = color;
       out1.points[0] = *(insidePts[0]);
-      out1.points[1] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
-      out1.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[1]));
+      out1.uvs[0] = *(insideUvs[0]);
+      float t;
+      std::tie(out1.points[1],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[1] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+
+      std::tie(out1.points[2],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[1]));
+      out1.uvs[2] = (*(outsideUvs[1]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+
       return 1;
     }
     else if (insidePtCount == 2 && outsidePtCount == 1) {
@@ -148,10 +227,19 @@ struct Triangle {
 
       out1.points[0] = *(insidePts[0]);
       out1.points[1] = *(insidePts[1]);
-      out1.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[0] = *(insideUvs[0]);
+      out1.uvs[1] = *(insideUvs[1]);
+
+      float t;
+      std::tie(out1.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+
       out2.points[0] = *(insidePts[1]);
       out2.points[1] = out1.points[2];
-      out2.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
+      std::tie(out2.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
+      out1.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[1]))*t + *(insideUvs[1]);
+
+
       return 2;
     }
     //should be unreachable
@@ -194,6 +282,32 @@ struct Mesh {
   }
 };
 
+const Mesh CUBE = {.tris = {
+  // SOUTH
+  { 0.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,}, 
+  { 0.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+
+  // EAST
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+
+  // NORTH
+  { 1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+
+  // WEST
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+
+  // TOP
+  { 0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
+  { 0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+
+  // BOTTOM
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+}};
+
 // 4x4 Matrix
 struct Mat4 {
   std::array<std::array<float,4>, 4> data = {0};
@@ -217,7 +331,7 @@ struct Mat4 {
   }
 };
 
-const Mat4 identity4 = {
+const Mat4 identity4 {
   1.0f, 0.0f, 0.0f, 0.0f,
   0.0f, 1.0f, 0.0f, 0.0f,
   0.0f, 0.0f, 1.0f, 0.0f,
@@ -259,6 +373,7 @@ Triangle project(const Triangle &tri, const Mat4 &m) {
   res.points[1] = mulProj(tri.points[1], m);
   res.points[2] = mulProj(tri.points[2], m);
   res.color = tri.color;
+  res.uvs = tri.uvs;
   return res;
 }
 
@@ -371,7 +486,7 @@ class Game : public olc::PixelGameEngine {
   Mesh meshCube;
   Mat4 projMat;
   Vec3 camPos = {0};
-  Vec3 camDir = {0,0,1};
+  Vec3 camDir {0,0,1};
   float yaw;
 
   float theta;
@@ -382,9 +497,12 @@ public:
   }
 
   bool OnUserCreate() override {
+    /*
     if(!meshCube.loadObj("assets/axis.obj")) {
-      std::cout << "Could not load object file\n";
+      return false;
     }
+    */
+    meshCube = CUBE;
 
     projMat = projectionMatrix(0.1f, 1000.0f, 90.0f, static_cast<float>(ScreenHeight()) / static_cast<float>(ScreenWidth()));
     return true;
@@ -433,8 +551,8 @@ public:
     matWorld = rotZ * rotX;
     matWorld = matWorld * transM;
 
-    Vec3 camUp = {0,1,0};
-    Vec3 camTarget = {0,0,1};
+    Vec3 camUp {0,1,0};
+    Vec3 camTarget {0,0,1};
     Mat4 camRot = matRotY(yaw);
     camDir = mulV4M4(camTarget, camRot);
     camTarget = camPos + camDir;
@@ -444,10 +562,11 @@ public:
     std::vector<Triangle> trisToDraw;
 
     // Calculate triangle projection and add to draw queue
-    for(auto tri: meshCube.tris) {
+    for(auto &tri: meshCube.tris) {
       Triangle triProj, triTrans, triViewed; //projected and transformed triangles
 
       triTrans = project(tri, matWorld);
+      //triTrans.uvs = tri.uvs;
 
       Vec3 normal, u,v;
       u = triTrans.points[1] - triTrans.points[0];
@@ -456,19 +575,22 @@ public:
       normal.normalize();
 
       if (normal.dot(triTrans.points[0]-camPos) < 0.0f) {
-        Vec3 light_dir = {0.0f, 0.0f, -1.0f};
+        Vec3 light_dir {0.0f, 0.0f, -1.0f};
         light_dir.normalize();
 
         float dp = normal.dot(light_dir);
         triTrans.color = getColor(dp);
 
         triViewed = project(triTrans, viewMat);
+        //triViewed.uvs = tri.uvs;
 
         std::array<Triangle, 2> outTris;
         int clippedTris = triViewed.clipAgainstPlane({0,0,0.1f}, {0,0,1.0f}, outTris[0], outTris[1]);
 
         for(int i = 0; i < clippedTris; i++) {
           triProj = project(outTris[i], projMat);
+          //triProj.uvs = outTris[i].uvs;
+
           triProj.scale(-1,-1,1);
           triProj.translate(1.0f, 1.0f, 0.0f);
           triProj.scale(0.5f * static_cast<float>(ScreenWidth()), 0.5f * static_cast<float>(ScreenHeight()), 1.0f);
@@ -514,21 +636,21 @@ public:
       }
 
       for (auto &t : triQueue) {
+        /*
         FillTriangle(
           t.points[0].x, t.points[0].y,
           t.points[1].x, t.points[1].y,
           t.points[2].x, t.points[2].y,
           t.color
         );
+        */
         // Draw wireframe
-        /*
         DrawTriangle(
           t.points[0].x, t.points[0].y,
           t.points[1].x, t.points[1].y,
           t.points[2].x, t.points[2].y,
-          olc::BLACK
+          olc::WHITE
         );
-        */
       }
     }
     return true;
