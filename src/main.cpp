@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <optional>
 #include <strstream>
 #include "olcPixelGameEngine.h"
 
@@ -278,9 +279,12 @@ struct Triangle {
 
 struct Mesh {
   std::vector<Triangle> tris;
+  std::shared_ptr<olc::Sprite> texture;
 
   // Load from .obj file
-  bool loadObj(std::string fp) {
+  bool loadObj(std::string fp, std::shared_ptr<olc::Sprite> optTexture = nullptr) {
+    texture = optTexture;
+
     std::ifstream f(fp);
     if (!f.is_open()) {
       std::cout << "Could not load object file: " << fp << std::endl;
@@ -289,6 +293,8 @@ struct Mesh {
 
     tris.clear();
     std::vector<Vec3> verts;
+    std::vector<Vec2> texs;
+
     std::string line {};
     while (getline(f, line)) {
       std::strstream s;
@@ -296,14 +302,47 @@ struct Mesh {
       char junk;
       
       if (line[0] == 'v') {
-        Vec3 v;
-        s >> junk >> v.x >> v.y >> v.z;
-        verts.push_back(v);
+        if (line[1] == 't') {
+          Vec2 v;
+          s >> junk >> junk >> v.u >> v.v;
+          texs.push_back(v);
+        }
+        else {
+          Vec3 v;
+          s >> junk >> v.x >> v.y >> v.z;
+          verts.push_back(v);
+        }
       }
-      else if (line[0] == 'f') {
-        int f[3];
-        s >> junk >> f[0] >> f[1] >> f[2];
-        tris.push_back({verts[f[0]-1], verts[f[1]-1], verts[f[2]-1]});
+      if (!texture) {
+        if (line[0] == 'f') {
+          int f[3];
+          s >> junk >> f[0] >> f[1] >> f[2];
+          tris.push_back({verts[f[0]-1], verts[f[1]-1], verts[f[2]-1]});
+        }
+      }
+      else {
+        if (line[0] == 'f') {
+          s >> junk;
+          std::array<std::string,6> tokens {};
+          int tkCount = -1;
+
+          while (!s.eof()) {
+            char c = s.get();
+            if (c == ' ' || c == '/') {
+              tkCount++;
+            }
+            else {
+              tokens[tkCount].append(1,c);
+            }
+          }
+          tokens[tkCount].pop_back();
+
+          tris.push_back({
+            verts[stoi(tokens[0])-1], verts[stoi(tokens[2])-1], verts[stoi(tokens[4])-1],
+            texs[stoi(tokens[1])-1], texs[stoi(tokens[3])-1], texs[stoi(tokens[5])-1],
+            1.0f, 1.0f, 1.0f,
+          });
+        }
       }
     }
     return true;
@@ -515,7 +554,6 @@ Mat4 matTrans(float x, float y, float z) {
 
 class Game : public olc::PixelGameEngine {
   Mesh meshCube;
-  olc::Sprite spr;
   Mat4 projMat;
   Vec3 camPos = {0};
   Vec3 camDir {0,0,1};
@@ -535,7 +573,7 @@ public:
     }
     */
     meshCube = CUBE;
-    spr = olc::Sprite("assets/tex.png");
+    meshCube.texture = std::make_shared<olc::Sprite>("assets/tex.png");
 
     projMat = projectionMatrix(0.1f, 1000.0f, 90.0f, static_cast<float>(ScreenHeight()) / static_cast<float>(ScreenWidth()));
     return true;
@@ -676,20 +714,22 @@ public:
       }
 
       for (auto &t : triQueue) {
-        TexturedTriangle(
-          t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,  t.w[0],
-          t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,  t.w[1],
-          t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,  t.w[2],
-          spr
-        );
-        /*
-        FillTriangle(
-          t.points[0].x, t.points[0].y,
-          t.points[1].x, t.points[1].y,
-          t.points[2].x, t.points[2].y,
-          t.color
-        );
-        */
+        if (meshCube.texture) {
+          TexturedTriangle(
+            t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,  t.w[0],
+            t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,  t.w[1],
+            t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,  t.w[2],
+            meshCube.texture
+          );
+        }
+        else {
+          FillTriangle(
+            t.points[0].x, t.points[0].y,
+            t.points[1].x, t.points[1].y,
+            t.points[2].x, t.points[2].y,
+            t.color
+          );
+        }
         // Draw wireframe
         DrawTriangle(
           t.points[0].x, t.points[0].y,
@@ -699,14 +739,14 @@ public:
         );
       }
     }
-    DrawSprite(0,0, &spr);
+    //DrawSprite(0,0, &spr);
     return true;
   }
 
   void TexturedTriangle(int x1, int y1, float u1, float v1, float w1,
                         int x2, int y2, float u2, float v2, float w2,
                         int x3, int y3, float u3, float v3, float w3,
-                        const olc::Sprite &spr) {
+                        const std::shared_ptr<olc::Sprite> spr) {
     if (y2 < y1) {
       std::swap(y1,y2);
       std::swap(x1,x2);
@@ -791,10 +831,10 @@ public:
           tv = (1.0f - t)*sv + t*ev;
           tw = (1.0f - t)*sw + t*ew;
           t += t_step;
-          int w = static_cast<float>(spr.width-1) * (tu/tw);
-          int h = static_cast<float>(spr.height-1) * (tv/tw);
+          int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
+          int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
-          Draw(j,i,spr.GetPixel(w,h));
+          Draw(j,i,spr->GetPixel(w,h));
         }
       }
     }
@@ -849,10 +889,10 @@ public:
           tv = (1.0f - t)*sv + t*ev;
           tw = (1.0f - t)*sw + t*ew;
           t += t_step;
-          int w = static_cast<float>(spr.width-1) * (tu/tw);
-          int h = static_cast<float>(spr.height-1) * (tv/tw);
+          int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
+          int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
-          Draw(j,i,spr.GetPixel(w,h));
+          Draw(j,i,spr->GetPixel(w,h));
         }
         //DrawRect(ax-2,i-2,4,4);
         //DrawRect(bx-2,i-2,4,4);
