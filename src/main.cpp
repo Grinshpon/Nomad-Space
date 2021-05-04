@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <strstream>
 #include "olcPixelGameEngine.h"
-//import linalg;
 
 struct Vec2 {
   float u,v;
@@ -128,6 +127,8 @@ std::pair<Vec3, float> intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineSt
 struct Triangle {
   std::array<Vec3,3> points;
   std::array<Vec2,3> uvs;
+  //depth info for points and uv coordinates
+  std::array<float, 3> w;
   olc::Pixel color;
 
   void translate(float dx, float dy, float dz) {
@@ -145,6 +146,7 @@ struct Triangle {
     return {
       .points = points,
       .uvs = uvs,
+      .w = w,
       .color = color,
     };
   }
@@ -160,86 +162,111 @@ struct Triangle {
     };
 
     std::array<Vec3*, 3> insidePts;
-    int insidePtCount = 0;
+    int insideCount = 0;
     std::array<Vec3*, 3> outsidePts;
-    int outsidePtCount = 0;
+    int outsideCount = 0;
 
     std::array<Vec2*, 3> insideUvs; //texture count
-    int insideUvCount = 0;
     std::array<Vec2*, 3> outsideUvs;
-    int outsideUvCount = 0;
+
+    std::array<float, 3> insideWs;
+    std::array<float, 3> outsideWs;
 
     float d0 = dist(points[0]);
     float d1 = dist(points[1]);
     float d2 = dist(points[2]);
     if (d0 >= 0) {
-      insidePts[insidePtCount++] = &points[0];
-      insideUvs[insideUvCount++] = &uvs[0];
+      insidePts[insideCount] = &points[0];
+      insideUvs[insideCount] = &uvs[0];
+      insideWs[insideCount] = w[0];
+      insideCount++;
     }
     else {
-      outsidePts[outsidePtCount++] = &points[0];
-      outsideUvs[outsideUvCount++] = &uvs[0];
+      outsidePts[outsideCount] = &points[0];
+      outsideUvs[outsideCount] = &uvs[0];
+      outsideWs[outsideCount] = w[0];
+      outsideCount++;
     }
     if (d1 >= 0) {
-      insidePts[insidePtCount++] = &points[1];
-      insideUvs[insideUvCount++] = &uvs[1];
+      insidePts[insideCount] = &points[1];
+      insideUvs[insideCount] = &uvs[1];
+      insideWs[insideCount] = w[1];
+      insideCount++;
     }
     else {
-      outsidePts[outsidePtCount++] = &points[1];
-      outsideUvs[outsideUvCount++] = &uvs[1];
+      outsidePts[outsideCount] = &points[1];
+      outsideUvs[outsideCount] = &uvs[1];
+      outsideWs[outsideCount] = w[1];
+      outsideCount++;
     }
     if (d2 >= 0) {
-      insidePts[insidePtCount++] = &points[2];
-      insideUvs[insideUvCount++] = &uvs[2];
+      insidePts[insideCount] = &points[2];
+      insideUvs[insideCount] = &uvs[2];
+      insideWs[insideCount] = w[2];
+      insideCount++;
     }
     else {
-      outsidePts[outsidePtCount++] = &points[2];
-      outsideUvs[outsideUvCount++] = &uvs[2];
+      outsidePts[outsideCount] = &points[2];
+      outsideUvs[outsideCount] = &uvs[2];
+      outsideWs[outsideCount] = w[2];
+      outsideCount++;
     }
 
-    if (insidePtCount == 0) {
+    if (insideCount == 0) {
       // all points are outside plane, so whole triangle should be clipped
       return 0;
     }
-    else if (insidePtCount == 3) {
+    else if (insideCount == 3) {
       // all points are inside plane, so triangle should be rendered whole and not clipped
       out1 = copy();
       return 1;
     }
-    else if (insidePtCount == 1 && outsidePtCount == 2) {
+    else if (insideCount == 1 && outsideCount == 2) {
       // triangle should be clipped, resulting in a smaller triangle
       out1.color = color;
+      //out1.w = w;
       out1.points[0] = *(insidePts[0]);
       out1.uvs[0] = *(insideUvs[0]);
+      out1.w[0] = insideWs[0];
       float t;
       std::tie(out1.points[1],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
       out1.uvs[1] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[1] = (outsideWs[0] - insideWs[0])*t + insideWs[0];
 
       std::tie(out1.points[2],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[1]));
       out1.uvs[2] = (*(outsideUvs[1]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[2] = (outsideWs[1] - insideWs[0])*t + insideWs[0];
 
       return 1;
     }
-    else if (insidePtCount == 2 && outsidePtCount == 1) {
+    else if (insideCount == 2 && outsideCount == 1) {
       // triangle should be clipped, resulting in quad (two tris)
       out1.color = color;
       out2.color = color;
+      //out1.w = w;
+      //out2.w = w;
 
       out1.points[0] = *(insidePts[0]);
       out1.points[1] = *(insidePts[1]);
       out1.uvs[0] = *(insideUvs[0]);
       out1.uvs[1] = *(insideUvs[1]);
+      out1.w[0] = insideWs[0];
+      out1.w[1] = insideWs[1];
 
       float t;
       std::tie(out1.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
       out1.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[2] = (outsideWs[0] - insideWs[0])*t + insideWs[0];
 
       out2.points[0] = *(insidePts[1]);
       out2.points[1] = out1.points[2];
       out2.uvs[0] = *(insideUvs[1]);
       out2.uvs[1] = out1.uvs[2];
+      out2.w[0] = insideWs[1];
+      out2.w[1] = out1.w[2];
       std::tie(out2.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
       out2.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[1]))*t + *(insideUvs[1]);
+      out2.w[2] = (outsideWs[0] - insideWs[1])*t + insideWs[1];
 
       return 2;
     }
@@ -285,28 +312,28 @@ struct Mesh {
 
 const Mesh CUBE = {.tris = {
   // SOUTH
-  { 0.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,}, 
-  { 0.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 0.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,}, 
+  { 0.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 
   // EAST
-  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
-  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 
   // NORTH
-  { 1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
-  { 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 
   // WEST
-  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
-  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 
   // TOP
-  { 0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
-  { 0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 
   // BOTTOM
-  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,},
-  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
 }};
 
 // 4x4 Matrix
@@ -340,7 +367,7 @@ const Mat4 identity4 {
 };
 
 // Multiply a 3d Vector by the Projection Matrix by first pretending it's a 4d vector
-Vec3 mulProj(const Vec3 &u, const Mat4 &m) {
+std::pair<Vec3, float> mulProj(const Vec3 &u, const Mat4 &m) {
   Vec3 res;
 
   res.x = u.x * m.get(0,0) + u.y * m.get(1,0) + u.z * m.get(2,0) + m.get(3,0);
@@ -354,7 +381,7 @@ Vec3 mulProj(const Vec3 &u, const Mat4 &m) {
     res.z /= w;
   }
 
-  return res;
+  return {res, w};
 }
 
 // Pretend a 3d vector is a 4d vector with w=1, multiply by the matrix, then return the result, discarding w
@@ -370,11 +397,14 @@ Vec3 mulV4M4(const Vec3 &u, const Mat4 &m) {
 
 Triangle project(const Triangle &tri, const Mat4 &m) {
   Triangle res;
-  res.points[0] = mulProj(tri.points[0], m);
-  res.points[1] = mulProj(tri.points[1], m);
-  res.points[2] = mulProj(tri.points[2], m);
+  std::tie(res.points[0], res.w[0]) = mulProj(tri.points[0], m);
+  std::tie(res.points[1], res.w[1]) = mulProj(tri.points[1], m);
+  std::tie(res.points[2], res.w[2]) = mulProj(tri.points[2], m);
   res.color = tri.color;
   res.uvs = tri.uvs;
+  //res.uvs[0].scale(1.0f/res.w[0]);
+  //res.uvs[1].scale(1.0f/res.w[1]);
+  //res.uvs[2].scale(1.0f/res.w[2]);
   return res;
 }
 
@@ -593,6 +623,13 @@ public:
         for(int i = 0; i < clippedTris; i++) {
           triProj = project(outTris[i], projMat);
           //triProj.uvs = outTris[i].uvs;
+          triProj.uvs[0].scale(1.0f/triProj.w[0]);
+          triProj.uvs[1].scale(1.0f/triProj.w[1]);
+          triProj.uvs[2].scale(1.0f/triProj.w[2]);
+
+          triProj.w[0] = 1.0f/triProj.w[0];
+          triProj.w[1] = 1.0f/triProj.w[1];
+          triProj.w[2] = 1.0f/triProj.w[2];
 
           triProj.scale(-1,-1,1);
           triProj.translate(1.0f, 1.0f, 0.0f);
@@ -640,9 +677,9 @@ public:
 
       for (auto &t : triQueue) {
         TexturedTriangle(
-          t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,
-          t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,
-          t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,
+          t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,  t.w[0],
+          t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,  t.w[1],
+          t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,  t.w[2],
           spr
         );
         /*
@@ -666,54 +703,62 @@ public:
     return true;
   }
 
-  void TexturedTriangle(int x1, int y1, float u1, float v1,
-                        int x2, int y2, float u2, float v2,
-                        int x3, int y3, float u3, float v3,
+  void TexturedTriangle(int x1, int y1, float u1, float v1, float w1,
+                        int x2, int y2, float u2, float v2, float w2,
+                        int x3, int y3, float u3, float v3, float w3,
                         const olc::Sprite &spr) {
     if (y2 < y1) {
       std::swap(y1,y2);
       std::swap(x1,x2);
       std::swap(u1,u2);
       std::swap(v1,v2);
+      std::swap(w1,w2);
     }
     if (y3 < y1) {
       std::swap(y1,y3);
       std::swap(x1,x3);
       std::swap(u1,u3);
       std::swap(v1,v3);
+      std::swap(w1,w3);
     }
     if (y3 < y2) {
       std::swap(y3,y2);
       std::swap(x3,x2);
       std::swap(u3,u2);
       std::swap(v3,v2);
+      std::swap(w3,w2);
     }
     int dy1 = y2-y1;
     int dx1 = x2-x1;
     float du1 = u2-u1;
     float dv1 = v2-v1;
+    float dw1 = w2-w1;
 
     int dy2 = y3-y1;
     int dx2 = x3-x1;
     float du2 = u3-u1;
     float dv2 = v3-v1;
+    float dw2 = w3-w1;
 
     float dax_step = 0, dbx_step = 0,
       du1_step = 0, dv1_step = 0,
-      du2_step = 0, dv2_step = 0;
+      du2_step = 0, dv2_step = 0,
+      dw1_step = 0, dw2_step = 0;
 
     if (dy1) {
       dax_step = dx1 / static_cast<float>(abs(dy1));
       du1_step = du1 / static_cast<float>(abs(dy1));
       dv1_step = dv1 / static_cast<float>(abs(dy1));
+      dw1_step = dw1 / static_cast<float>(abs(dy1));
     }
     if (dy2) {
       dbx_step = dx2 / static_cast<float>(abs(dy2));
       du2_step = du2 / static_cast<float>(abs(dy2));
       dv2_step = dv2 / static_cast<float>(abs(dy2));
+      dw2_step = dw2 / static_cast<float>(abs(dy2));
     }
 
-    float tu, tv; //final uv points
+    float tu, tv, tw; //final uv points
     if (dy1) {
       for (int i=y1; i <= y2; i++) {
         int ax = x1 + static_cast<float>(i-y1) * dax_step;
@@ -722,28 +767,33 @@ public:
         //starting uv coord
         float su = u1 + static_cast<float>(i-y1) * du1_step;
         float sv = v1 + static_cast<float>(i-y1) * dv1_step;
+        float sw = w1 + static_cast<float>(i-y1) * dw1_step;
 
         //ending uv coord
         float eu = u1 + static_cast<float>(i-y1) * du2_step;
         float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+        float ew = w1 + static_cast<float>(i-y1) * dw2_step;
 
         if (ax > bx) {
           std::swap(ax,bx);
           std::swap(su,eu);
           std::swap(sv,ev);
+          std::swap(sw,ew);
         }
         tu = su;
         tv = sv;
+        tw = sw;
         float t_step = 1.0f / static_cast<float>(bx - ax);
         float t = 0.0f;
 
         for (int j = ax; j < bx; j++) {
           tu = (1.0f - t)*su + t*eu;
           tv = (1.0f - t)*sv + t*ev;
+          tw = (1.0f - t)*sw + t*ew;
           t += t_step;
-          int w = static_cast<float>(spr.width-1) * tu;
-          int h = static_cast<float>(spr.height-1) * tv;
-          //std::cout << tu << ", " << tv << "  --  " << w << ", " << h << std::endl;
+          int w = static_cast<float>(spr.width-1) * (tu/tw);
+          int h = static_cast<float>(spr.height-1) * (tv/tw);
+          //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           Draw(j,i,spr.GetPixel(w,h));
         }
       }
@@ -752,10 +802,12 @@ public:
     dx1 = x3 - x2;
     du1 = u3 - u2;
     dv1 = v3 - v2;
+    dw1 = w3 - w2;
     if (dy1) {
       dax_step = dx1 / static_cast<float>(abs(dy1));
       du1_step = du1 / static_cast<float>(abs(dy1));
       dv1_step = dv1 / static_cast<float>(abs(dy1));
+      dw1_step = dw1 / static_cast<float>(abs(dy1));
     }
     else {
       du1_step = 0;
@@ -773,28 +825,33 @@ public:
         //starting uv coord
         float su = u2 + static_cast<float>(i-y2) * du1_step;
         float sv = v2 + static_cast<float>(i-y2) * dv1_step;
+        float sw = w2 + static_cast<float>(i-y2) * dw1_step;
 
         //ending uv coord
         float eu = u1 + static_cast<float>(i-y1) * du2_step;
         float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+        float ew = w1 + static_cast<float>(i-y1) * dw2_step;
 
         if (ax > bx) {
           std::swap(ax,bx);
           std::swap(su,eu);
           std::swap(sv,ev);
+          std::swap(sw,ew);
         }
         tu = su;
         tv = sv;
+        tw = sw;
         float t_step = 1.0f / static_cast<float>(bx - ax);
         float t = 0.0f;
 
         for (int j = ax; j < bx; j++) {
           tu = (1.0f - t)*su + t*eu;
           tv = (1.0f - t)*sv + t*ev;
+          tw = (1.0f - t)*sw + t*ew;
           t += t_step;
-          int w = static_cast<float>(spr.width-1) * tu;
-          int h = static_cast<float>(spr.height-1) * tv;
-          //std::cout << tu << ", " << tv << "  --  " << w << ", " << h << std::endl;
+          int w = static_cast<float>(spr.width-1) * (tu/tw);
+          int h = static_cast<float>(spr.height-1) * (tv/tw);
+          //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           Draw(j,i,spr.GetPixel(w,h));
         }
         //DrawRect(ax-2,i-2,4,4);
