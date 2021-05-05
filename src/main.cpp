@@ -130,7 +130,8 @@ struct Triangle {
   std::array<Vec2,3> uvs;
   //depth info for points and uv coordinates
   std::array<float, 3> w;
-  olc::Pixel color;
+  float light; //light value
+  //olc::Pixel color;
 
   void translate(float dx, float dy, float dz) {
     points[0].translate(dx,dy,dz);
@@ -148,7 +149,8 @@ struct Triangle {
       .points = points,
       .uvs = uvs,
       .w = w,
-      .color = color,
+      .light = light,
+      //.color = color,
     };
   }
 
@@ -224,7 +226,8 @@ struct Triangle {
     }
     else if (insideCount == 1 && outsideCount == 2) {
       // triangle should be clipped, resulting in a smaller triangle
-      out1.color = color;
+      //out1.color = color;
+      out1.light = light;
       //out1.w = w;
       out1.points[0] = *(insidePts[0]);
       out1.uvs[0] = *(insideUvs[0]);
@@ -242,8 +245,10 @@ struct Triangle {
     }
     else if (insideCount == 2 && outsideCount == 1) {
       // triangle should be clipped, resulting in quad (two tris)
-      out1.color = color;
-      out2.color = color;
+      //out1.color = color;
+      out1.light = light;
+      //out2.color = color;
+      out2.light = light;
       //out1.w = w;
       //out2.w = w;
 
@@ -305,6 +310,8 @@ struct Mesh {
         if (line[1] == 't') {
           Vec2 v;
           s >> junk >> junk >> v.u >> v.v;
+          v.u = 1.0f-v.u;
+          v.v = 1.0f-v.v;
           texs.push_back(v);
         }
         else {
@@ -439,7 +446,8 @@ Triangle project(const Triangle &tri, const Mat4 &m) {
   std::tie(res.points[0], res.w[0]) = mulProj(tri.points[0], m);
   std::tie(res.points[1], res.w[1]) = mulProj(tri.points[1], m);
   std::tie(res.points[2], res.w[2]) = mulProj(tri.points[2], m);
-  res.color = tri.color;
+  //res.color = tri.color;
+  res.light = tri.light;
   res.uvs = tri.uvs;
   //res.uvs[0].scale(1.0f/res.w[0]);
   //res.uvs[1].scale(1.0f/res.w[1]);
@@ -561,19 +569,23 @@ class Game : public olc::PixelGameEngine {
 
   float theta;
 
+  std::vector<float> depthBuffer;
+
 public:
   Game() {
     sAppName = "Nomad Space";
   }
 
   bool OnUserCreate() override {
-    /*
-    if(!meshCube.loadObj("assets/axis.obj")) {
+    depthBuffer = std::vector<float>(ScreenWidth() * ScreenHeight());
+    std::cout << "Loading texture" << std::endl;
+    auto tex = std::make_shared<olc::Sprite>("assets/baseColor.png");
+    std::cout << "Loading obj" << std::endl;
+    if(!meshCube.loadObj("assets/cobra.obj", tex)) {
       return false;
     }
-    */
-    meshCube = CUBE;
-    meshCube.texture = std::make_shared<olc::Sprite>("assets/tex.png");
+    //meshCube = CUBE;
+    //meshCube.texture = std::make_shared<olc::Sprite>("assets/tex.png");
 
     projMat = projectionMatrix(0.1f, 1000.0f, 90.0f, static_cast<float>(ScreenHeight()) / static_cast<float>(ScreenWidth()));
     return true;
@@ -608,11 +620,8 @@ public:
       camPos = camPos - moveForward;
     }
 
-    // Draw
-    Clear(olc::BLACK);
-
     Mat4 rotZ, rotX;
-    //theta += 1.0f * dt;
+    theta += 0.6f * dt;
     rotZ = matRotZ(theta);
     rotX = matRotX(theta * 0.5f);
 
@@ -650,7 +659,8 @@ public:
         light_dir.normalize();
 
         float dp = normal.dot(light_dir);
-        triTrans.color = getColor(dp);
+        triTrans.light = dp;
+        //triTrans.color = getColor(dp);
 
         triViewed = project(triTrans, viewMat);
         //triViewed.uvs = tri.uvs;
@@ -678,12 +688,19 @@ public:
       }
     }
 
+    // Draw
+    Clear(olc::BLACK);
+    for (int i=0; i < ScreenWidth()*ScreenHeight(); i++) {
+      depthBuffer[i] = 0.0f;
+    }
+    /*
     // Sort triangles from back to front
     sort(trisToDraw.begin(), trisToDraw.end(), [](Triangle &t1, Triangle &t2) {
       float avg1 = (t1.points[0].z + t1.points[1].z + t1.points[2].z) / 3.0f;
       float avg2 = (t2.points[0].z + t2.points[1].z + t2.points[2].z) / 3.0f;
       return avg1 > avg2;
     });
+    */
 
     // Draw sorted triangles
     for (auto &tri: trisToDraw) {
@@ -719,7 +736,7 @@ public:
             t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,  t.w[0],
             t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,  t.w[1],
             t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,  t.w[2],
-            meshCube.texture
+            meshCube.texture, t.light
           );
         }
         else {
@@ -727,9 +744,10 @@ public:
             t.points[0].x, t.points[0].y,
             t.points[1].x, t.points[1].y,
             t.points[2].x, t.points[2].y,
-            t.color
+            olc::WHITE * t.light
           );
         }
+        /*
         // Draw wireframe
         DrawTriangle(
           t.points[0].x, t.points[0].y,
@@ -737,6 +755,7 @@ public:
           t.points[2].x, t.points[2].y,
           olc::WHITE
         );
+        */
       }
     }
     //DrawSprite(0,0, &spr);
@@ -746,7 +765,8 @@ public:
   void TexturedTriangle(int x1, int y1, float u1, float v1, float w1,
                         int x2, int y2, float u2, float v2, float w2,
                         int x3, int y3, float u3, float v3, float w3,
-                        const std::shared_ptr<olc::Sprite> spr) {
+                        const std::shared_ptr<olc::Sprite> spr, float light) {
+    light = std::max(0.1f, light);
     if (y2 < y1) {
       std::swap(y1,y2);
       std::swap(x1,x2);
@@ -830,11 +850,14 @@ public:
           tu = (1.0f - t)*su + t*eu;
           tv = (1.0f - t)*sv + t*ev;
           tw = (1.0f - t)*sw + t*ew;
-          t += t_step;
           int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
-          Draw(j,i,spr->GetPixel(w,h));
+          if (tw > depthBuffer[i*ScreenWidth()+j]) {
+            Draw(j,i,spr->GetPixel(w,h));
+            depthBuffer[i*ScreenWidth()+j] = tw;
+          }
+          t += t_step;
         }
       }
     }
@@ -888,11 +911,14 @@ public:
           tu = (1.0f - t)*su + t*eu;
           tv = (1.0f - t)*sv + t*ev;
           tw = (1.0f - t)*sw + t*ew;
-          t += t_step;
           int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
-          Draw(j,i,spr->GetPixel(w,h));
+          if (tw > depthBuffer[i*ScreenWidth()+j]) {
+            Draw(j,i,spr->GetPixel(w,h));
+            depthBuffer[i*ScreenWidth()+j] = tw;
+          }
+          t += t_step;
         }
         //DrawRect(ax-2,i-2,4,4);
         //DrawRect(bx-2,i-2,4,4);
