@@ -565,7 +565,8 @@ class Game : public olc::PixelGameEngine {
   Mat4 projMat;
   Vec3 camPos = {0};
   Vec3 camDir {0,0,1};
-  float yaw;
+  Vec3 camRight {1,0,0};
+  float yaw = 0.0f;
 
   float theta;
 
@@ -599,11 +600,15 @@ public:
     if (GetKey(olc::Key::DOWN).bHeld) {
       camPos.y -= 8.0f * dt;
     }
+    Vec3 moveRight = camRight;
+    moveRight.scale(8.0f * dt);
     if (GetKey(olc::Key::LEFT).bHeld) {
-      camPos.x += 8.0f * dt;
+      //camPos.x += 8.0f * dt;
+      camPos = camPos + moveRight;
     }
     if (GetKey(olc::Key::RIGHT).bHeld) {
-      camPos.x -= 8.0f * dt;
+      //camPos.x -= 8.0f * dt;
+      camPos = camPos - moveRight;
     }
     if (GetKey(olc::Key::A).bHeld) {
       yaw -= 2.0f * dt;
@@ -633,8 +638,10 @@ public:
 
     Vec3 camUp {0,1,0};
     Vec3 camTarget {0,0,1};
+    Vec3 camRightT {1,0,0};
     Mat4 camRot = matRotY(yaw);
     camDir = mulV4M4(camTarget, camRot);
+    camRight = mulV4M4(camRightT, camRot);
     camTarget = camPos + camDir;
     Mat4 camMat = matPointAt(camPos, camTarget, camUp);
     Mat4 viewMat = quickInverse(camMat);
