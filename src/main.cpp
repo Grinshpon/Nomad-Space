@@ -455,8 +455,8 @@ Triangle project(const Triangle &tri, const Mat4 &m) {
   return res;
 }
 
-olc::Pixel getColor(float lum) {
-  return olc::WHITE * std::max((lum+1.0f)/2.0f, 0.1f);
+olc::Pixel getColor(const olc::Pixel& p, float lum) {
+  return p * std::max((lum+1.0f)/4.0f + 0.5f, 0.4f);
 }
 
 Mat4 projectionMatrix(float fnear, float ffar, float fov, float aspectRatio) {
@@ -579,9 +579,9 @@ public:
 
   bool OnUserCreate() override {
     depthBuffer = std::vector<float>(ScreenWidth() * ScreenHeight());
-    std::cout << "Loading texture" << std::endl;
+    //std::cout << "Loading texture" << std::endl;
     auto tex = std::make_shared<olc::Sprite>("assets/baseColor.png");
-    std::cout << "Loading obj" << std::endl;
+    //std::cout << "Loading obj" << std::endl;
     if(!meshCube.loadObj("assets/cobra.obj", tex)) {
       return false;
     }
@@ -773,7 +773,7 @@ public:
                         int x2, int y2, float u2, float v2, float w2,
                         int x3, int y3, float u3, float v3, float w3,
                         const std::shared_ptr<olc::Sprite> spr, float light) {
-    light = std::max(0.1f, light);
+    //light = getLight(light);
     if (y2 < y1) {
       std::swap(y1,y2);
       std::swap(x1,x2);
@@ -861,7 +861,7 @@ public:
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           if (tw > depthBuffer[i*ScreenWidth()+j]) {
-            Draw(j,i,spr->GetPixel(w,h)*light);
+            Draw(j,i,getColor(spr->GetPixel(w,h),light));
             depthBuffer[i*ScreenWidth()+j] = tw;
           }
           t += t_step;
@@ -922,7 +922,7 @@ public:
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           if (tw > depthBuffer[i*ScreenWidth()+j]) {
-            Draw(j,i,spr->GetPixel(w,h)*light);
+            Draw(j,i,getColor(spr->GetPixel(w,h),light));
             depthBuffer[i*ScreenWidth()+j] = tw;
           }
           t += t_step;
