@@ -568,7 +568,7 @@ class Game : public olc::PixelGameEngine {
   Vec3 camRight {1,0,0};
   float yaw = 0.0f;
 
-  float theta;
+  float theta = 0.0f;
 
   std::vector<float> depthBuffer;
 
