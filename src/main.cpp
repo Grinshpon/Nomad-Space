@@ -854,7 +854,7 @@ public:
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           if (tw > depthBuffer[i*ScreenWidth()+j]) {
-            Draw(j,i,spr->GetPixel(w,h));
+            Draw(j,i,spr->GetPixel(w,h)*light);
             depthBuffer[i*ScreenWidth()+j] = tw;
           }
           t += t_step;
@@ -915,7 +915,7 @@ public:
           int h = static_cast<float>(spr->height-1) * (tv/tw);
           //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
           if (tw > depthBuffer[i*ScreenWidth()+j]) {
-            Draw(j,i,spr->GetPixel(w,h));
+            Draw(j,i,spr->GetPixel(w,h)*light);
             depthBuffer[i*ScreenWidth()+j] = tw;
           }
           t += t_step;
