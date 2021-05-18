@@ -1,11 +1,57 @@
 #include <array>
 #include <vector>
+#include <tuple>
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <optional>
 #include <strstream>
 #include "olcPixelGameEngine.h"
-//import linalg;
+
+struct Vec2 {
+  float u,v;
+
+
+  void normalize() {
+    float l = sqrtf(u*u + v*v);
+    u /= l;
+    v /= l;
+  }
+  float sqrMag() {
+    return (u*u + v*v);
+  }
+  float mag() {
+    return sqrtf(u*u + v*v);
+  }
+  void scale(float su, float sv) {
+    u *= su;
+    v *= sv;
+  }
+  void scale(float s) {
+    scale(s,s);
+  }
+  void translate(float du, float dv) {
+    u += du;
+    v += dv;
+  }
+
+  Vec2 operator+ (const Vec2 &rhs) const {
+    return {
+      u+rhs.u,
+      v+rhs.v,
+    };
+  }
+  Vec2 operator- (const Vec2 &rhs) const {
+    return {
+      u-rhs.u,
+      v-rhs.v,
+    };
+  }
+
+  Vec2 operator* (float rhs) {
+    return {u*rhs, v*rhs};
+  }
+};
 
 struct Vec3 {
   float x = 0.0f,y=0.0f,z=0.0f;
@@ -64,8 +110,10 @@ struct Vec3 {
   }
 };
 
+//given point on plane and normal of plane, as well as start and end points of line segment
 // plane_n expected to be normalized
-Vec3 intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd) {
+//return point that intersects with plane, and also the ratio of where the intersection is between line start and line end
+std::pair<Vec3, float> intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd) {
   plane_n.normalize();
   float plane_d = -plane_n.dot(plane_p);
   float ad = lineStart.dot(plane_n);
@@ -74,12 +122,16 @@ Vec3 intersectPlane(Vec3 &plane_p, Vec3 &plane_n, Vec3 &lineStart, Vec3 &lineEnd
   Vec3 startToEnd = lineEnd - lineStart;
   Vec3 intersect = startToEnd;
   intersect.scale(t);
-  return lineStart + intersect;
+  return {lineStart + intersect, t};
 }
 
 struct Triangle {
   std::array<Vec3,3> points;
-  olc::Pixel color;
+  std::array<Vec2,3> uvs;
+  //depth info for points and uv coordinates
+  std::array<float, 3> w;
+  float light; //light value
+  //olc::Pixel color;
 
   void translate(float dx, float dy, float dz) {
     points[0].translate(dx,dy,dz);
@@ -95,7 +147,10 @@ struct Triangle {
   Triangle copy() {
     return {
       .points = points,
-      .color = color
+      .uvs = uvs,
+      .w = w,
+      .light = light,
+      //.color = color,
     };
   }
 
@@ -110,48 +165,115 @@ struct Triangle {
     };
 
     std::array<Vec3*, 3> insidePts;
-    int insidePtCount = 0;
+    int insideCount = 0;
     std::array<Vec3*, 3> outsidePts;
-    int outsidePtCount = 0;
+    int outsideCount = 0;
+
+    std::array<Vec2*, 3> insideUvs; //texture count
+    std::array<Vec2*, 3> outsideUvs;
+
+    std::array<float, 3> insideWs;
+    std::array<float, 3> outsideWs;
 
     float d0 = dist(points[0]);
     float d1 = dist(points[1]);
     float d2 = dist(points[2]);
-    if (d0 >= 0) { insidePts[insidePtCount++] = &points[0];}
-    else { outsidePts[outsidePtCount++] = &points[0];}
-    if (d1 >= 0) { insidePts[insidePtCount++] = &points[1];}
-    else { outsidePts[outsidePtCount++] = &points[1];}
-    if (d2 >= 0) { insidePts[insidePtCount++] = &points[2];}
-    else { outsidePts[outsidePtCount++] = &points[2];}
+    if (d0 >= 0) {
+      insidePts[insideCount] = &points[0];
+      insideUvs[insideCount] = &uvs[0];
+      insideWs[insideCount] = w[0];
+      insideCount++;
+    }
+    else {
+      outsidePts[outsideCount] = &points[0];
+      outsideUvs[outsideCount] = &uvs[0];
+      outsideWs[outsideCount] = w[0];
+      outsideCount++;
+    }
+    if (d1 >= 0) {
+      insidePts[insideCount] = &points[1];
+      insideUvs[insideCount] = &uvs[1];
+      insideWs[insideCount] = w[1];
+      insideCount++;
+    }
+    else {
+      outsidePts[outsideCount] = &points[1];
+      outsideUvs[outsideCount] = &uvs[1];
+      outsideWs[outsideCount] = w[1];
+      outsideCount++;
+    }
+    if (d2 >= 0) {
+      insidePts[insideCount] = &points[2];
+      insideUvs[insideCount] = &uvs[2];
+      insideWs[insideCount] = w[2];
+      insideCount++;
+    }
+    else {
+      outsidePts[outsideCount] = &points[2];
+      outsideUvs[outsideCount] = &uvs[2];
+      outsideWs[outsideCount] = w[2];
+      outsideCount++;
+    }
 
-    if (insidePtCount == 0) {
+    if (insideCount == 0) {
       // all points are outside plane, so whole triangle should be clipped
       return 0;
     }
-    else if (insidePtCount == 3) {
+    else if (insideCount == 3) {
       // all points are inside plane, so triangle should be rendered whole and not clipped
       out1 = copy();
       return 1;
     }
-    else if (insidePtCount == 1 && outsidePtCount == 2) {
+    else if (insideCount == 1 && outsideCount == 2) {
       // triangle should be clipped, resulting in a smaller triangle
-      out1.color = color;
+      //out1.color = color;
+      out1.light = light;
+      //out1.w = w;
       out1.points[0] = *(insidePts[0]);
-      out1.points[1] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
-      out1.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[1]));
+      out1.uvs[0] = *(insideUvs[0]);
+      out1.w[0] = insideWs[0];
+      float t;
+      std::tie(out1.points[1],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[1] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[1] = (outsideWs[0] - insideWs[0])*t + insideWs[0];
+
+      std::tie(out1.points[2],t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[1]));
+      out1.uvs[2] = (*(outsideUvs[1]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[2] = (outsideWs[1] - insideWs[0])*t + insideWs[0];
+
       return 1;
     }
-    else if (insidePtCount == 2 && outsidePtCount == 1) {
+    else if (insideCount == 2 && outsideCount == 1) {
       // triangle should be clipped, resulting in quad (two tris)
-      out1.color = color;
-      out2.color = color;
+      //out1.color = color;
+      out1.light = light;
+      //out2.color = color;
+      out2.light = light;
+      //out1.w = w;
+      //out2.w = w;
 
       out1.points[0] = *(insidePts[0]);
       out1.points[1] = *(insidePts[1]);
-      out1.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[0] = *(insideUvs[0]);
+      out1.uvs[1] = *(insideUvs[1]);
+      out1.w[0] = insideWs[0];
+      out1.w[1] = insideWs[1];
+
+      float t;
+      std::tie(out1.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[0]), *(outsidePts[0]));
+      out1.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[0]))*t + *(insideUvs[0]);
+      out1.w[2] = (outsideWs[0] - insideWs[0])*t + insideWs[0];
+
       out2.points[0] = *(insidePts[1]);
       out2.points[1] = out1.points[2];
-      out2.points[2] = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
+      out2.uvs[0] = *(insideUvs[1]);
+      out2.uvs[1] = out1.uvs[2];
+      out2.w[0] = insideWs[1];
+      out2.w[1] = out1.w[2];
+      std::tie(out2.points[2], t) = intersectPlane(plane_p, plane_n, *(insidePts[1]), *(outsidePts[0]));
+      out2.uvs[2] = (*(outsideUvs[0]) - *(insideUvs[1]))*t + *(insideUvs[1]);
+      out2.w[2] = (outsideWs[0] - insideWs[1])*t + insideWs[1];
+
       return 2;
     }
     //should be unreachable
@@ -162,9 +284,12 @@ struct Triangle {
 
 struct Mesh {
   std::vector<Triangle> tris;
+  std::shared_ptr<olc::Sprite> texture;
 
   // Load from .obj file
-  bool loadObj(std::string fp) {
+  bool loadObj(std::string fp, std::shared_ptr<olc::Sprite> optTexture = nullptr) {
+    texture = optTexture;
+
     std::ifstream f(fp);
     if (!f.is_open()) {
       std::cout << "Could not load object file: " << fp << std::endl;
@@ -173,6 +298,8 @@ struct Mesh {
 
     tris.clear();
     std::vector<Vec3> verts;
+    std::vector<Vec2> texs;
+
     std::string line {};
     while (getline(f, line)) {
       std::strstream s;
@@ -180,19 +307,80 @@ struct Mesh {
       char junk;
       
       if (line[0] == 'v') {
-        Vec3 v;
-        s >> junk >> v.x >> v.y >> v.z;
-        verts.push_back(v);
+        if (line[1] == 't') {
+          Vec2 v;
+          s >> junk >> junk >> v.u >> v.v;
+          v.u = 1.0f-v.u;
+          v.v = 1.0f-v.v;
+          texs.push_back(v);
+        }
+        else {
+          Vec3 v;
+          s >> junk >> v.x >> v.y >> v.z;
+          verts.push_back(v);
+        }
       }
-      else if (line[0] == 'f') {
-        int f[3];
-        s >> junk >> f[0] >> f[1] >> f[2];
-        tris.push_back({verts[f[0]-1], verts[f[1]-1], verts[f[2]-1]});
+      if (!texture) {
+        if (line[0] == 'f') {
+          int f[3];
+          s >> junk >> f[0] >> f[1] >> f[2];
+          tris.push_back({verts[f[0]-1], verts[f[1]-1], verts[f[2]-1]});
+        }
+      }
+      else {
+        if (line[0] == 'f') {
+          s >> junk;
+          std::array<std::string,6> tokens {};
+          int tkCount = -1;
+
+          while (!s.eof()) {
+            char c = s.get();
+            if (c == ' ' || c == '/') {
+              tkCount++;
+            }
+            else {
+              tokens[tkCount].append(1,c);
+            }
+          }
+          tokens[tkCount].pop_back();
+
+          tris.push_back({
+            verts[stoi(tokens[0])-1], verts[stoi(tokens[2])-1], verts[stoi(tokens[4])-1],
+            texs[stoi(tokens[1])-1], texs[stoi(tokens[3])-1], texs[stoi(tokens[5])-1],
+            1.0f, 1.0f, 1.0f,
+          });
+        }
       }
     }
     return true;
   }
 };
+
+const Mesh CUBE = {.tris = {
+  // SOUTH
+  { 0.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,}, 
+  { 0.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+
+  // EAST
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+
+  // NORTH
+  { 1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+
+  // WEST
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+
+  // TOP
+  { 0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 0.0f, 1.0f, 0.0f,  1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+
+  // BOTTOM
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,    0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 0.0f,    1.0f, 1.0f, 1.0f,},
+  { 1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,    0.0f, 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,    1.0f, 1.0f, 1.0f,},
+}};
 
 // 4x4 Matrix
 struct Mat4 {
@@ -217,7 +405,7 @@ struct Mat4 {
   }
 };
 
-const Mat4 identity4 = {
+const Mat4 identity4 {
   1.0f, 0.0f, 0.0f, 0.0f,
   0.0f, 1.0f, 0.0f, 0.0f,
   0.0f, 0.0f, 1.0f, 0.0f,
@@ -225,7 +413,7 @@ const Mat4 identity4 = {
 };
 
 // Multiply a 3d Vector by the Projection Matrix by first pretending it's a 4d vector
-Vec3 mulProj(const Vec3 &u, const Mat4 &m) {
+std::pair<Vec3, float> mulProj(const Vec3 &u, const Mat4 &m) {
   Vec3 res;
 
   res.x = u.x * m.get(0,0) + u.y * m.get(1,0) + u.z * m.get(2,0) + m.get(3,0);
@@ -239,7 +427,7 @@ Vec3 mulProj(const Vec3 &u, const Mat4 &m) {
     res.z /= w;
   }
 
-  return res;
+  return {res, w};
 }
 
 // Pretend a 3d vector is a 4d vector with w=1, multiply by the matrix, then return the result, discarding w
@@ -255,15 +443,20 @@ Vec3 mulV4M4(const Vec3 &u, const Mat4 &m) {
 
 Triangle project(const Triangle &tri, const Mat4 &m) {
   Triangle res;
-  res.points[0] = mulProj(tri.points[0], m);
-  res.points[1] = mulProj(tri.points[1], m);
-  res.points[2] = mulProj(tri.points[2], m);
-  res.color = tri.color;
+  std::tie(res.points[0], res.w[0]) = mulProj(tri.points[0], m);
+  std::tie(res.points[1], res.w[1]) = mulProj(tri.points[1], m);
+  std::tie(res.points[2], res.w[2]) = mulProj(tri.points[2], m);
+  //res.color = tri.color;
+  res.light = tri.light;
+  res.uvs = tri.uvs;
+  //res.uvs[0].scale(1.0f/res.w[0]);
+  //res.uvs[1].scale(1.0f/res.w[1]);
+  //res.uvs[2].scale(1.0f/res.w[2]);
   return res;
 }
 
-olc::Pixel getColor(float lum) {
-  return olc::WHITE * std::max((lum+1.0f)/2.0f, 0.1f);
+olc::Pixel getColor(const olc::Pixel& p, float lum) {
+  return p * std::max((lum+1.0f)/4.0f + 0.5f, 0.4f);
 }
 
 Mat4 projectionMatrix(float fnear, float ffar, float fov, float aspectRatio) {
@@ -371,20 +564,29 @@ class Game : public olc::PixelGameEngine {
   Mesh meshCube;
   Mat4 projMat;
   Vec3 camPos = {0};
-  Vec3 camDir = {0,0,1};
-  float yaw;
+  Vec3 camDir {0,0,1};
+  Vec3 camRight {1,0,0};
+  float yaw = 0.0f;
 
-  float theta;
+  float theta = 0.0f;
+
+  std::vector<float> depthBuffer;
 
 public:
   Game() {
-    sAppName = "Test";
+    sAppName = "Nomad Space";
   }
 
   bool OnUserCreate() override {
-    if(!meshCube.loadObj("assets/axis.obj")) {
-      std::cout << "Could not load object file\n";
+    depthBuffer = std::vector<float>(ScreenWidth() * ScreenHeight());
+    //std::cout << "Loading texture" << std::endl;
+    auto tex = std::make_shared<olc::Sprite>("assets/baseColor.png");
+    //std::cout << "Loading obj" << std::endl;
+    if(!meshCube.loadObj("assets/cobra.obj", tex)) {
+      return false;
     }
+    //meshCube = CUBE;
+    //meshCube.texture = std::make_shared<olc::Sprite>("assets/tex.png");
 
     projMat = projectionMatrix(0.1f, 1000.0f, 90.0f, static_cast<float>(ScreenHeight()) / static_cast<float>(ScreenWidth()));
     return true;
@@ -398,11 +600,15 @@ public:
     if (GetKey(olc::Key::DOWN).bHeld) {
       camPos.y -= 8.0f * dt;
     }
+    Vec3 moveRight = camRight;
+    moveRight.scale(8.0f * dt);
     if (GetKey(olc::Key::LEFT).bHeld) {
-      camPos.x += 8.0f * dt;
+      //camPos.x += 8.0f * dt;
+      camPos = camPos + moveRight;
     }
     if (GetKey(olc::Key::RIGHT).bHeld) {
-      camPos.x -= 8.0f * dt;
+      //camPos.x -= 8.0f * dt;
+      camPos = camPos - moveRight;
     }
     if (GetKey(olc::Key::A).bHeld) {
       yaw -= 2.0f * dt;
@@ -419,11 +625,8 @@ public:
       camPos = camPos - moveForward;
     }
 
-    // Draw
-    Clear(olc::BLACK);
-
     Mat4 rotZ, rotX;
-    //theta += 1.0f * dt;
+    theta += 0.6f * dt;
     rotZ = matRotZ(theta);
     rotX = matRotX(theta * 0.5f);
 
@@ -433,10 +636,12 @@ public:
     matWorld = rotZ * rotX;
     matWorld = matWorld * transM;
 
-    Vec3 camUp = {0,1,0};
-    Vec3 camTarget = {0,0,1};
+    Vec3 camUp {0,1,0};
+    Vec3 camTarget {0,0,1};
+    Vec3 camRightT {1,0,0};
     Mat4 camRot = matRotY(yaw);
     camDir = mulV4M4(camTarget, camRot);
+    camRight = mulV4M4(camRightT, camRot);
     camTarget = camPos + camDir;
     Mat4 camMat = matPointAt(camPos, camTarget, camUp);
     Mat4 viewMat = quickInverse(camMat);
@@ -444,10 +649,11 @@ public:
     std::vector<Triangle> trisToDraw;
 
     // Calculate triangle projection and add to draw queue
-    for(auto tri: meshCube.tris) {
+    for(auto &tri: meshCube.tris) {
       Triangle triProj, triTrans, triViewed; //projected and transformed triangles
 
       triTrans = project(tri, matWorld);
+      //triTrans.uvs = tri.uvs;
 
       Vec3 normal, u,v;
       u = triTrans.points[1] - triTrans.points[0];
@@ -456,19 +662,30 @@ public:
       normal.normalize();
 
       if (normal.dot(triTrans.points[0]-camPos) < 0.0f) {
-        Vec3 light_dir = {0.0f, 0.0f, -1.0f};
+        Vec3 light_dir {0.0f, 0.0f, -1.0f};
         light_dir.normalize();
 
         float dp = normal.dot(light_dir);
-        triTrans.color = getColor(dp);
+        triTrans.light = dp;
+        //triTrans.color = getColor(dp);
 
         triViewed = project(triTrans, viewMat);
+        //triViewed.uvs = tri.uvs;
 
         std::array<Triangle, 2> outTris;
         int clippedTris = triViewed.clipAgainstPlane({0,0,0.1f}, {0,0,1.0f}, outTris[0], outTris[1]);
 
         for(int i = 0; i < clippedTris; i++) {
           triProj = project(outTris[i], projMat);
+          //triProj.uvs = outTris[i].uvs;
+          triProj.uvs[0].scale(1.0f/triProj.w[0]);
+          triProj.uvs[1].scale(1.0f/triProj.w[1]);
+          triProj.uvs[2].scale(1.0f/triProj.w[2]);
+
+          triProj.w[0] = 1.0f/triProj.w[0];
+          triProj.w[1] = 1.0f/triProj.w[1];
+          triProj.w[2] = 1.0f/triProj.w[2];
+
           triProj.scale(-1,-1,1);
           triProj.translate(1.0f, 1.0f, 0.0f);
           triProj.scale(0.5f * static_cast<float>(ScreenWidth()), 0.5f * static_cast<float>(ScreenHeight()), 1.0f);
@@ -478,12 +695,19 @@ public:
       }
     }
 
+    // Draw
+    Clear(olc::BLACK);
+    for (int i=0; i < ScreenWidth()*ScreenHeight(); i++) {
+      depthBuffer[i] = 0.0f;
+    }
+    /*
     // Sort triangles from back to front
     sort(trisToDraw.begin(), trisToDraw.end(), [](Triangle &t1, Triangle &t2) {
       float avg1 = (t1.points[0].z + t1.points[1].z + t1.points[2].z) / 3.0f;
       float avg2 = (t2.points[0].z + t2.points[1].z + t2.points[2].z) / 3.0f;
       return avg1 > avg2;
     });
+    */
 
     // Draw sorted triangles
     for (auto &tri: trisToDraw) {
@@ -514,24 +738,199 @@ public:
       }
 
       for (auto &t : triQueue) {
-        FillTriangle(
-          t.points[0].x, t.points[0].y,
-          t.points[1].x, t.points[1].y,
-          t.points[2].x, t.points[2].y,
-          t.color
-        );
-        // Draw wireframe
+        if (meshCube.texture) {
+          TexturedTriangle(
+            t.points[0].x, t.points[0].y,  t.uvs[0].u, t.uvs[0].v,  t.w[0],
+            t.points[1].x, t.points[1].y,  t.uvs[1].u, t.uvs[1].v,  t.w[1],
+            t.points[2].x, t.points[2].y,  t.uvs[2].u, t.uvs[2].v,  t.w[2],
+            meshCube.texture, t.light
+          );
+        }
+        else {
+          FillTriangle(
+            t.points[0].x, t.points[0].y,
+            t.points[1].x, t.points[1].y,
+            t.points[2].x, t.points[2].y,
+            olc::WHITE * t.light
+          );
+        }
         /*
+        // Draw wireframe
         DrawTriangle(
           t.points[0].x, t.points[0].y,
           t.points[1].x, t.points[1].y,
           t.points[2].x, t.points[2].y,
-          olc::BLACK
+          olc::WHITE
         );
         */
       }
     }
+    //DrawSprite(0,0, &spr);
     return true;
+  }
+
+  void TexturedTriangle(int x1, int y1, float u1, float v1, float w1,
+                        int x2, int y2, float u2, float v2, float w2,
+                        int x3, int y3, float u3, float v3, float w3,
+                        const std::shared_ptr<olc::Sprite> spr, float light) {
+    //light = getLight(light);
+    if (y2 < y1) {
+      std::swap(y1,y2);
+      std::swap(x1,x2);
+      std::swap(u1,u2);
+      std::swap(v1,v2);
+      std::swap(w1,w2);
+    }
+    if (y3 < y1) {
+      std::swap(y1,y3);
+      std::swap(x1,x3);
+      std::swap(u1,u3);
+      std::swap(v1,v3);
+      std::swap(w1,w3);
+    }
+    if (y3 < y2) {
+      std::swap(y3,y2);
+      std::swap(x3,x2);
+      std::swap(u3,u2);
+      std::swap(v3,v2);
+      std::swap(w3,w2);
+    }
+    int dy1 = y2-y1;
+    int dx1 = x2-x1;
+    float du1 = u2-u1;
+    float dv1 = v2-v1;
+    float dw1 = w2-w1;
+
+    int dy2 = y3-y1;
+    int dx2 = x3-x1;
+    float du2 = u3-u1;
+    float dv2 = v3-v1;
+    float dw2 = w3-w1;
+
+    float dax_step = 0, dbx_step = 0,
+      du1_step = 0, dv1_step = 0,
+      du2_step = 0, dv2_step = 0,
+      dw1_step = 0, dw2_step = 0;
+
+    if (dy1) {
+      dax_step = dx1 / static_cast<float>(abs(dy1));
+      du1_step = du1 / static_cast<float>(abs(dy1));
+      dv1_step = dv1 / static_cast<float>(abs(dy1));
+      dw1_step = dw1 / static_cast<float>(abs(dy1));
+    }
+    if (dy2) {
+      dbx_step = dx2 / static_cast<float>(abs(dy2));
+      du2_step = du2 / static_cast<float>(abs(dy2));
+      dv2_step = dv2 / static_cast<float>(abs(dy2));
+      dw2_step = dw2 / static_cast<float>(abs(dy2));
+    }
+
+    float tu, tv, tw; //final uv points
+    if (dy1) {
+      for (int i=y1; i <= y2; i++) {
+        int ax = x1 + static_cast<float>(i-y1) * dax_step;
+        int bx = x1 + static_cast<float>(i-y1) * dbx_step;
+
+        //starting uv coord
+        float su = u1 + static_cast<float>(i-y1) * du1_step;
+        float sv = v1 + static_cast<float>(i-y1) * dv1_step;
+        float sw = w1 + static_cast<float>(i-y1) * dw1_step;
+
+        //ending uv coord
+        float eu = u1 + static_cast<float>(i-y1) * du2_step;
+        float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+        float ew = w1 + static_cast<float>(i-y1) * dw2_step;
+
+        if (ax > bx) {
+          std::swap(ax,bx);
+          std::swap(su,eu);
+          std::swap(sv,ev);
+          std::swap(sw,ew);
+        }
+        tu = su;
+        tv = sv;
+        tw = sw;
+        float t_step = 1.0f / static_cast<float>(bx - ax);
+        float t = 0.0f;
+
+        for (int j = ax; j < bx; j++) {
+          tu = (1.0f - t)*su + t*eu;
+          tv = (1.0f - t)*sv + t*ev;
+          tw = (1.0f - t)*sw + t*ew;
+          int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
+          int h = static_cast<float>(spr->height-1) * (tv/tw);
+          //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
+          if (tw > depthBuffer[i*ScreenWidth()+j]) {
+            Draw(j,i,getColor(spr->GetPixel(w,h),light));
+            depthBuffer[i*ScreenWidth()+j] = tw;
+          }
+          t += t_step;
+        }
+      }
+    }
+    dy1 = y3 - y2;
+    dx1 = x3 - x2;
+    du1 = u3 - u2;
+    dv1 = v3 - v2;
+    dw1 = w3 - w2;
+    if (dy1) {
+      dax_step = dx1 / static_cast<float>(abs(dy1));
+      du1_step = du1 / static_cast<float>(abs(dy1));
+      dv1_step = dv1 / static_cast<float>(abs(dy1));
+      dw1_step = dw1 / static_cast<float>(abs(dy1));
+    }
+    else {
+      du1_step = 0;
+      dv1_step = 0;
+    }
+    if (dy2) {
+      dbx_step = dx2 / static_cast<float>(abs(dy2));
+    }
+
+    if (dy1) {
+      for (int i=y2; i <= y3; i++) {
+        int ax = x2 + static_cast<float>(i-y2) * dax_step;
+        int bx = x1 + static_cast<float>(i-y1) * dbx_step;
+
+        //starting uv coord
+        float su = u2 + static_cast<float>(i-y2) * du1_step;
+        float sv = v2 + static_cast<float>(i-y2) * dv1_step;
+        float sw = w2 + static_cast<float>(i-y2) * dw1_step;
+
+        //ending uv coord
+        float eu = u1 + static_cast<float>(i-y1) * du2_step;
+        float ev = v1 + static_cast<float>(i-y1) * dv2_step;
+        float ew = w1 + static_cast<float>(i-y1) * dw2_step;
+
+        if (ax > bx) {
+          std::swap(ax,bx);
+          std::swap(su,eu);
+          std::swap(sv,ev);
+          std::swap(sw,ew);
+        }
+        tu = su;
+        tv = sv;
+        tw = sw;
+        float t_step = 1.0f / static_cast<float>(bx - ax);
+        float t = 0.0f;
+
+        for (int j = ax; j < bx; j++) {
+          tu = (1.0f - t)*su + t*eu;
+          tv = (1.0f - t)*sv + t*ev;
+          tw = (1.0f - t)*sw + t*ew;
+          int w = static_cast<float>(spr->width-1) * (1.0f - tu/tw);
+          int h = static_cast<float>(spr->height-1) * (tv/tw);
+          //std::cout << tu/tw << ", " << tv/tw << "  --  " << w << ", " << h << std::endl;
+          if (tw > depthBuffer[i*ScreenWidth()+j]) {
+            Draw(j,i,getColor(spr->GetPixel(w,h),light));
+            depthBuffer[i*ScreenWidth()+j] = tw;
+          }
+          t += t_step;
+        }
+        //DrawRect(ax-2,i-2,4,4);
+        //DrawRect(bx-2,i-2,4,4);
+      }
+    }
   }
 };
 
